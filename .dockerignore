@@ -1,0 +1,24 @@
+# Everything git ignores, plus the git metadata itself.
+.git/
+.gitignore
+
+bin/
+dist/
+tmp/
+
+*.test
+coverage.out
+coverage.html
+
+.env
+.env.local
+
+.idea/
+.vscode/
+*.swp
+
+
+# The compose stack builds from source; no need to ship docs into the context.
+docs/
+README.md
+LICENSE
