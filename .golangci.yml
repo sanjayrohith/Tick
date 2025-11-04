@@ -1,0 +1,70 @@
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  enable:
+    # Correctness
+    - bodyclose        # HTTP response bodies must be closed
+    - sqlclosecheck    # sql.Rows and sql.Stmt must be closed
+    - rowserrcheck     # rows.Err() must be checked after iteration
+    - errorlint        # correct error wrapping and comparison
+    - nilerr           # do not return nil when err is non-nil
+    - contextcheck     # do not drop or mismatch contexts
+    - noctx            # no HTTP or SQL calls without a context
+    # Security
+    - gosec
+    # Style and clarity
+    - revive
+    - misspell
+    - unconvert
+    - wastedassign
+
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment   # not worth the readability cost here
+    revive:
+      rules:
+        - name: exported
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: indent-error-flow
+        - name: var-naming
+        - name: package-comments
+    gosec:
+      excludes:
+        - G404   # math/rand is fine for retry jitter, never used for secrets
+    errcheck:
+      check-type-assertions: true
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test files may skip a handful of production-grade checks.
+      - path: _test\.go
+        linters:
+          - gosec
+          - noctx
+          - contextcheck
+      # Embedded migration SQL is trusted, not user input.
+      - path: internal/store/postgres/
+        text: "G201|G202"
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/sanjayrohith/tick
