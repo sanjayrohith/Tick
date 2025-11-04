@@ -1,0 +1,23 @@
+# Build output
+/bin/
+/dist/
+*.exe
+
+# Test and coverage artifacts
+*.test
+coverage.out
+coverage.html
+
+# Local environment
+.env
+.env.local
+
+# Scratch
+/tmp/
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
