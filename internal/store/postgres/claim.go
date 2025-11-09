@@ -28,20 +28,33 @@ import (
 //
 // Every comparison uses now(), the database clock, never a worker's clock:
 // see the store package doc for why that single clock matters.
+//
+// The UPDATE is wrapped in a CTE with an outer SELECT ... ORDER BY. This is
+// not about which rows get claimed: the subquery's ORDER BY plus LIMIT
+// already pins that down before FOR UPDATE ever locks a row. It is about what
+// order RETURNING hands them back in. Postgres makes no promise that an
+// UPDATE ... WHERE id IN (SELECT ... ORDER BY ...) returns rows in that
+// subquery's order; RETURNING order otherwise follows physical row order,
+// which is not what a caller means by "highest priority first".
 const claimSQL = `
-UPDATE tasks
-SET status = 'running',
-    claimed_by = $1,
-    heartbeat_at = now(),
-    attempts = attempts + 1
-WHERE id IN (
-  SELECT id FROM tasks
-  WHERE queue = $2 AND status = 'pending' AND run_at <= now()
-  ORDER BY priority DESC, run_at
-  FOR UPDATE SKIP LOCKED
-  LIMIT $3
+WITH claimed AS (
+  UPDATE tasks
+  SET status = 'running',
+      claimed_by = $1,
+      heartbeat_at = now(),
+      attempts = attempts + 1
+  WHERE id IN (
+    SELECT id FROM tasks
+    WHERE queue = $2 AND status = 'pending' AND run_at <= now()
+    ORDER BY priority DESC, run_at
+    FOR UPDATE SKIP LOCKED
+    LIMIT $3
+  )
+  RETURNING *
 )
-RETURNING ` + taskColumns
+SELECT ` + taskColumns + `
+FROM claimed
+ORDER BY priority DESC, run_at`
 
 // Claim atomically transitions up to limit due tasks from pending to running,
 // stamps them with workerID, increments their attempt counts, and returns
