@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"time"
+
+	"github.com/sanjayrohith/tick/internal/obs"
 )
 
 // DefaultInterval is how often the sweeper checks for orphaned tasks when no
@@ -24,18 +26,24 @@ type Sweeper struct {
 	recoverer Recoverer
 	interval  time.Duration
 	log       *slog.Logger
+	metrics   obs.Metrics
 }
 
-// New builds a Sweeper. A zero interval falls back to DefaultInterval, and a
-// nil logger discards output rather than panicking.
-func New(recoverer Recoverer, interval time.Duration, log *slog.Logger) *Sweeper {
+// New builds a Sweeper. A zero interval falls back to DefaultInterval, a nil
+// logger discards output rather than panicking, and a nil metrics dependency
+// falls back to obs.NoopMetrics so the sweeper works standalone before a real
+// metrics backend exists.
+func New(recoverer Recoverer, interval time.Duration, log *slog.Logger, metrics obs.Metrics) *Sweeper {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Sweeper{recoverer: recoverer, interval: interval, log: log}
+	if metrics == nil {
+		metrics = obs.NoopMetrics{}
+	}
+	return &Sweeper{recoverer: recoverer, interval: interval, log: log, metrics: metrics}
 }
 
 // Run sweeps on a ticker until ctx is cancelled. A recovery error is logged
@@ -79,5 +87,6 @@ func (s *Sweeper) sweepOnce(ctx context.Context) {
 	}
 	if recovered > 0 {
 		s.log.InfoContext(ctx, "recovered orphaned tasks", "count", recovered)
+		s.metrics.OrphansRecovered(recovered)
 	}
 }
