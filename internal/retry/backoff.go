@@ -26,16 +26,22 @@ func DefaultConfig() Config {
 	return Config{Base: 5, Cap: 300}
 }
 
+// Ceiling returns the capped exponential value for attempts, in seconds,
+// before jitter is applied: least(Cap, Base * 2^attempts). Backoff's actual
+// return value is uniformly distributed between zero and this.
+func (c Config) Ceiling(attempts int) float64 {
+	if attempts < 0 {
+		attempts = 0
+	}
+	return math.Min(c.Cap, math.Pow(2, float64(attempts))*c.Base)
+}
+
 // Backoff returns the delay before the next retry for the given attempt
 // count, with full jitter applied: the result is uniformly distributed
 // between zero and the capped exponential value, which is what stops many
 // tasks that failed at once from retrying at once too.
 func (c Config) Backoff(attempts int) time.Duration {
-	if attempts < 0 {
-		attempts = 0
-	}
-	capped := math.Min(c.Cap, math.Pow(2, float64(attempts))*c.Base)
-	jittered := rand.Float64() * capped
+	jittered := rand.Float64() * c.Ceiling(attempts)
 	return time.Duration(jittered * float64(time.Second))
 }
 
