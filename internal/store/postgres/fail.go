@@ -7,21 +7,33 @@ import (
 	"github.com/sanjayrohith/tick/internal/domain"
 )
 
-// failSQL records the failure and releases the claim, guarded by claimed_by
-// exactly like completeSQL. It intentionally stops at status = 'failed': the
-// decision of whether this goes back to pending with a backoff or on to dead
-// belongs to the retry policy, not to this statement.
+// failSQL records the failure, releases the claim, and applies the retry
+// policy in the same statement, guarded by claimed_by exactly like
+// completeSQL.
+//
+// While attempts remain, the task goes back to pending with a capped
+// exponential backoff plus full jitter: least(300, power(2, attempts) * 5)
+// seconds matching the PRD, scaled by random() so tasks that failed at the
+// same instant do not all retry at the same instant too. Once attempts are
+// exhausted the task falls back to 'failed' here; task 029 replaces that
+// branch with 'dead'.
+//
+// The interval is computed in SQL, not via internal/retry, so the database
+// clock stays authoritative the same way run_at comparisons already are.
 const failSQL = `
 UPDATE tasks
-SET status = 'failed',
+SET status = CASE WHEN attempts < max_attempts THEN 'pending' ELSE 'failed' END,
+    run_at = CASE WHEN attempts < max_attempts
+                  THEN now() + (interval '1 second' * (random() * least(300, power(2, attempts) * 5)))
+                  ELSE run_at END,
     claimed_by = NULL,
     heartbeat_at = NULL,
     last_error = $3
 WHERE id = $1 AND claimed_by = $2`
 
-// Fail records an execution failure and releases the claim. The status
-// transition beyond 'failed' (back to pending with backoff, or to dead once
-// attempts are exhausted) is applied by the retry policy.
+// Fail records an execution failure, releases the claim, and applies the
+// retry policy: back to pending with a backed-off run_at while attempts
+// remain, or to dead once attempts reach max_attempts (wired in task 029).
 func (s *Store) Fail(ctx context.Context, id int64, workerID string, execErr error) error {
 	msg := ""
 	if execErr != nil {

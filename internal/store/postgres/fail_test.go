@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sanjayrohith/tick/internal/domain"
 )
 
-func TestFailRecordsErrorAndReleasesClaim(t *testing.T) {
+func TestFailWithRetriesRemainingGoesBackToPendingWithBackoff(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
 	seeded, err := s.Enqueue(ctx, &domain.Task{
-		Queue: "default", Handler: "send_email", Payload: json.RawMessage(`{}`),
+		Queue: "default", Handler: "send_email", Payload: json.RawMessage(`{}`), MaxAttempts: 5,
 	})
 	if err != nil {
 		t.Fatalf("Enqueue() = %v, want success", err)
@@ -23,6 +24,7 @@ func TestFailRecordsErrorAndReleasesClaim(t *testing.T) {
 		t.Fatalf("Claim() = %v, want success", claimErr)
 	}
 
+	before := time.Now()
 	if failErr := s.Fail(ctx, seeded.ID, "worker-1", errors.New("smtp timeout")); failErr != nil {
 		t.Fatalf("Fail() = %v, want success", failErr)
 	}
@@ -31,8 +33,11 @@ func TestFailRecordsErrorAndReleasesClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading back the failed task: %v", err)
 	}
-	if got.Status != domain.StatusFailed {
-		t.Errorf("Status = %q, want %q", got.Status, domain.StatusFailed)
+	if got.Status != domain.StatusPending {
+		t.Errorf("Status = %q, want %q (a retry, since attempts=1 < max_attempts=5)", got.Status, domain.StatusPending)
+	}
+	if !got.RunAt.After(before) {
+		t.Errorf("RunAt = %v, want it pushed into the future by backoff (after %v)", got.RunAt, before)
 	}
 	if got.ClaimedBy != nil {
 		t.Errorf("ClaimedBy = %v, want nil", got.ClaimedBy)
