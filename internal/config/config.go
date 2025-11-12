@@ -57,22 +57,44 @@ type Config struct {
 	// LogLevel is the minimum level emitted by the structured logger.
 	// TICK_LOG_LEVEL.
 	LogLevel slog.Level
+
+	// SweepInterval is how often the sweeper checks for orphaned tasks.
+	// TICK_SWEEP_INTERVAL.
+	SweepInterval time.Duration
+
+	// HeartbeatInterval is how often a worker refreshes heartbeat_at on its
+	// claimed tasks. TICK_HEARTBEAT_INTERVAL.
+	HeartbeatInterval time.Duration
+
+	// HeartbeatTTL is how long a task may go without a heartbeat before the
+	// sweeper treats it as orphaned. TICK_HEARTBEAT_TTL.
+	HeartbeatTTL time.Duration
 }
 
 // Defaults applied when a variable is unset. Chosen so that a developer with
 // only TICK_DATABASE_URL set gets a working single-queue Postgres deployment.
 const (
-	defaultBackend    = BackendPostgres
-	defaultQueue      = "default"
-	defaultClaimBatch = 10
-	defaultHTTPAddr   = ":8080"
-	defaultLogLevel   = slog.LevelInfo
+	defaultBackend           = BackendPostgres
+	defaultQueue             = "default"
+	defaultClaimBatch        = 10
+	defaultHTTPAddr          = ":8080"
+	defaultLogLevel          = slog.LevelInfo
+	defaultSweepInterval     = 30 * time.Second
+	defaultHeartbeatInterval = 10 * time.Second
+	defaultHeartbeatTTL      = 90 * time.Second
 )
 
 // maxClaimBatch bounds a single claim. A very large batch holds row locks for
 // longer than a worker can plausibly heartbeat them, which converts a slow
 // handler into a wave of false orphan recoveries.
 const maxClaimBatch = 1000
+
+// minHeartbeatTTLRatio is the minimum multiple HeartbeatTTL must be of
+// HeartbeatInterval. A ratio of 3 means a worker has to miss three
+// consecutive heartbeats, not one, before the sweeper reclaims its task -- a
+// single slow garbage-collection pause must not be indistinguishable from a
+// dead worker.
+const minHeartbeatTTLRatio = 3
 
 // FieldError describes one invalid or missing configuration variable.
 type FieldError struct {
@@ -129,6 +151,10 @@ func Load(lookup LookupFunc) (*Config, error) {
 		HTTPAddr:    l.optional("TICK_HTTP_ADDR", defaultHTTPAddr),
 		Backend:     l.backend("TICK_BACKEND", defaultBackend),
 		LogLevel:    l.logLevel("TICK_LOG_LEVEL", defaultLogLevel),
+
+		SweepInterval:     l.duration("TICK_SWEEP_INTERVAL", defaultSweepInterval),
+		HeartbeatInterval: l.duration("TICK_HEARTBEAT_INTERVAL", defaultHeartbeatInterval),
+		HeartbeatTTL:      l.duration("TICK_HEARTBEAT_TTL", defaultHeartbeatTTL),
 	}
 
 	// Cross-field rule: the Redis backend cannot start without a Redis URL.
@@ -136,6 +162,15 @@ func Load(lookup LookupFunc) (*Config, error) {
 	// variables at once.
 	if cfg.Backend == BackendRedis && cfg.RedisURL == "" {
 		l.fail("TICK_REDIS_URL", "required when TICK_BACKEND is redis")
+	}
+
+	// Cross-field rule: the TTL must give a worker room to miss more than one
+	// heartbeat before the sweeper reclaims its task. A single missed beat
+	// orphaning a live task is a false positive the ratio exists to prevent.
+	if cfg.HeartbeatTTL < minHeartbeatTTLRatio*cfg.HeartbeatInterval {
+		l.fail("TICK_HEARTBEAT_TTL", fmt.Sprintf(
+			"must be at least %dx TICK_HEARTBEAT_INTERVAL (%s), got %s",
+			minHeartbeatTTLRatio, cfg.HeartbeatInterval, cfg.HeartbeatTTL))
 	}
 
 	if len(l.problems) > 0 {
@@ -210,6 +245,24 @@ func (l *loader) intInRange(key string, def, minValue, maxValue int) int {
 	return n
 }
 
+// duration parses a Go duration string such as "30s" or "90s".
+func (l *loader) duration(key string, def time.Duration) time.Duration {
+	v, ok := l.get(key)
+	if !ok {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		l.fail(key, fmt.Sprintf("must be a duration like \"30s\", got %q", v))
+		return def
+	}
+	if d <= 0 {
+		l.fail(key, fmt.Sprintf("must be positive, got %q", v))
+		return def
+	}
+	return d
+}
+
 func (l *loader) backend(key string, def Backend) Backend {
 	v, ok := l.get(key)
 	if !ok {
@@ -243,8 +296,10 @@ func (l *loader) logLevel(key string, def slog.Level) slog.Level {
 // Connection strings carry passwords, so only their presence is reported.
 func (c *Config) String() string {
 	return fmt.Sprintf(
-		"backend=%s queue=%s claim_batch=%d http_addr=%s log_level=%s database_url=%s redis_url=%s",
+		"backend=%s queue=%s claim_batch=%d http_addr=%s log_level=%s "+
+			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s database_url=%s redis_url=%s",
 		c.Backend, c.Queue, c.ClaimBatch, c.HTTPAddr, c.LogLevel,
+		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL,
 		redacted(c.DatabaseURL), redacted(c.RedisURL),
 	)
 }

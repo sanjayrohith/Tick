@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 // minimalEnv is the smallest environment that must produce a valid Config.
@@ -46,6 +47,10 @@ func TestLoadReadsEveryField(t *testing.T) {
 		"TICK_CLAIM_BATCH":  "64",
 		"TICK_HTTP_ADDR":    "127.0.0.1:9000",
 		"TICK_LOG_LEVEL":    "debug",
+
+		"TICK_SWEEP_INTERVAL":     "45s",
+		"TICK_HEARTBEAT_INTERVAL": "15s",
+		"TICK_HEARTBEAT_TTL":      "60s",
 	}))
 	if err != nil {
 		t.Fatalf("Load() = %v, want success", err)
@@ -62,6 +67,9 @@ func TestLoadReadsEveryField(t *testing.T) {
 		{"HTTPAddr", cfg.HTTPAddr, "127.0.0.1:9000"},
 		{"LogLevel", cfg.LogLevel, slog.LevelDebug},
 		{"RedisURL", cfg.RedisURL, "redis://localhost:6379/0"},
+		{"SweepInterval", cfg.SweepInterval, 45 * time.Second},
+		{"HeartbeatInterval", cfg.HeartbeatInterval, 15 * time.Second},
+		{"HeartbeatTTL", cfg.HeartbeatTTL, 60 * time.Second},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -181,6 +189,54 @@ func TestStringRedactsConnectionStrings(t *testing.T) {
 	if !strings.Contains(got, "queue=default") {
 		t.Errorf("Config.String() should still report non-secret fields:\n%s", got)
 	}
+}
+
+func TestHeartbeatDefaultsSatisfyTheSafetyRatio(t *testing.T) {
+	cfg, err := Load(MapLookup(minimalEnv()))
+	if err != nil {
+		t.Fatalf("Load() = %v, want success", err)
+	}
+	if cfg.SweepInterval != defaultSweepInterval {
+		t.Errorf("SweepInterval = %v, want %v", cfg.SweepInterval, defaultSweepInterval)
+	}
+	if cfg.HeartbeatInterval != defaultHeartbeatInterval {
+		t.Errorf("HeartbeatInterval = %v, want %v", cfg.HeartbeatInterval, defaultHeartbeatInterval)
+	}
+	if cfg.HeartbeatTTL != defaultHeartbeatTTL {
+		t.Errorf("HeartbeatTTL = %v, want %v", cfg.HeartbeatTTL, defaultHeartbeatTTL)
+	}
+	if cfg.HeartbeatTTL < minHeartbeatTTLRatio*cfg.HeartbeatInterval {
+		t.Errorf("defaults violate their own safety ratio: TTL=%v interval=%v", cfg.HeartbeatTTL, cfg.HeartbeatInterval)
+	}
+}
+
+func TestHeartbeatTTLBelowSafetyRatioFails(t *testing.T) {
+	env := minimalEnv()
+	env["TICK_HEARTBEAT_INTERVAL"] = "10s"
+	env["TICK_HEARTBEAT_TTL"] = "20s" // only 2x, the ratio requires 3x
+
+	_, err := Load(MapLookup(env))
+	if err == nil {
+		t.Fatal("Load() with TTL below 3x the heartbeat interval must fail")
+	}
+	assertFieldsFailed(t, err, "TICK_HEARTBEAT_TTL")
+
+	// The same environment is valid the moment the ratio is satisfied.
+	env["TICK_HEARTBEAT_TTL"] = "30s"
+	if _, err := Load(MapLookup(env)); err != nil {
+		t.Fatalf("Load() = %v, want success once the ratio is satisfied", err)
+	}
+}
+
+func TestDurationFieldRejectsGarbage(t *testing.T) {
+	env := minimalEnv()
+	env["TICK_SWEEP_INTERVAL"] = "banana"
+
+	_, err := Load(MapLookup(env))
+	if err == nil {
+		t.Fatal("Load() with a malformed duration must fail")
+	}
+	assertFieldsFailed(t, err, "TICK_SWEEP_INTERVAL")
 }
 
 // assertFieldsFailed checks that err is a *ValidationError naming exactly the
