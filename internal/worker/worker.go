@@ -132,7 +132,7 @@ func (w *Worker) dispatch(ctx context.Context, t *domain.Task) {
 	hCtx, cancel := context.WithTimeout(ctx, w.cfg.TaskTimeout)
 	defer cancel()
 
-	if err := h.Handle(hCtx, *t); err != nil {
+	if err := safeHandle(hCtx, h, *t); err != nil {
 		if errors.Is(hCtx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("handler timed out after %s: %w", w.cfg.TaskTimeout, err)
 		}
