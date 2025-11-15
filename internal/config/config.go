@@ -74,6 +74,11 @@ type Config struct {
 	// HeartbeatTTL is how long a task may go without a heartbeat before the
 	// sweeper treats it as orphaned. TICK_HEARTBEAT_TTL.
 	HeartbeatTTL time.Duration
+
+	// TaskTimeout bounds how long a single handler invocation may run before
+	// the worker cancels it and reports a timeout as a retryable failure.
+	// TICK_TASK_TIMEOUT.
+	TaskTimeout time.Duration
 }
 
 // Defaults applied when a variable is unset. Chosen so that a developer with
@@ -88,6 +93,7 @@ const (
 	defaultSweepInterval     = 30 * time.Second
 	defaultHeartbeatInterval = 10 * time.Second
 	defaultHeartbeatTTL      = 90 * time.Second
+	defaultTaskTimeout       = 5 * time.Minute
 )
 
 // maxClaimBatch bounds a single claim. A very large batch holds row locks for
@@ -167,6 +173,7 @@ func Load(lookup LookupFunc) (*Config, error) {
 		SweepInterval:     l.duration("TICK_SWEEP_INTERVAL", defaultSweepInterval),
 		HeartbeatInterval: l.duration("TICK_HEARTBEAT_INTERVAL", defaultHeartbeatInterval),
 		HeartbeatTTL:      l.duration("TICK_HEARTBEAT_TTL", defaultHeartbeatTTL),
+		TaskTimeout:       l.duration("TICK_TASK_TIMEOUT", defaultTaskTimeout),
 	}
 
 	// Cross-field rule: the Redis backend cannot start without a Redis URL.
@@ -309,9 +316,10 @@ func (l *loader) logLevel(key string, def slog.Level) slog.Level {
 func (c *Config) String() string {
 	return fmt.Sprintf(
 		"backend=%s queue=%s claim_batch=%d concurrency=%d http_addr=%s log_level=%s "+
-			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s database_url=%s redis_url=%s",
+			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s task_timeout=%s "+
+			"database_url=%s redis_url=%s",
 		c.Backend, c.Queue, c.ClaimBatch, c.Concurrency, c.HTTPAddr, c.LogLevel,
-		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL,
+		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL, c.TaskTimeout,
 		redacted(c.DatabaseURL), redacted(c.RedisURL),
 	)
 }

@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -36,6 +38,10 @@ type Config struct {
 	// HeartbeatInterval is how often in-flight claims are refreshed in one
 	// batched call.
 	HeartbeatInterval time.Duration
+
+	// TaskTimeout bounds how long a single handler invocation may run before
+	// it is cancelled and reported as a retryable failure.
+	TaskTimeout time.Duration
 }
 
 // Worker claims tasks from one queue and dispatches them to registered
@@ -114,7 +120,8 @@ func (w *Worker) availableBatch() int {
 	return min(w.cfg.ClaimBatch, cap(w.sem)-len(w.sem))
 }
 
-// dispatch runs one task's handler and records the outcome.
+// dispatch runs one task's handler under a per-task deadline and records the
+// outcome.
 func (w *Worker) dispatch(ctx context.Context, t *domain.Task) {
 	h, err := w.registry.Lookup(t.Handler)
 	if err != nil {
@@ -122,7 +129,13 @@ func (w *Worker) dispatch(ctx context.Context, t *domain.Task) {
 		return
 	}
 
-	if err := h.Handle(ctx, *t); err != nil {
+	hCtx, cancel := context.WithTimeout(ctx, w.cfg.TaskTimeout)
+	defer cancel()
+
+	if err := h.Handle(hCtx, *t); err != nil {
+		if errors.Is(hCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("handler timed out after %s: %w", w.cfg.TaskTimeout, err)
+		}
 		w.fail(ctx, t, err)
 		return
 	}
