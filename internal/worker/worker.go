@@ -52,6 +52,16 @@ type Config struct {
 // grace period elapsed before the task finished.
 var errShutdownTimeout = errors.New("worker: shutdown grace period elapsed before task finished")
 
+// idleBackoffFloor and idleBackoffCeiling bound the adaptive delay between
+// claims that come back empty. Starting low keeps latency tight on a queue
+// that just started filling up; capping low enough to still poll every couple
+// of seconds, but backing off at all, is what keeps an idle fleet off the
+// database instead of hammering it on a fixed sub-second beat.
+const (
+	idleBackoffFloor   = 50 * time.Millisecond
+	idleBackoffCeiling = 2 * time.Second
+)
+
 // Worker claims tasks from one queue and dispatches them to registered
 // handlers, running up to cfg.Concurrency of them at once.
 type Worker struct {
@@ -94,6 +104,7 @@ func (w *Worker) Run(ctx context.Context) {
 	defer hbCancel()
 	go w.heartbeatLoop(hbCtx)
 
+	backoff := idleBackoffFloor
 	for {
 		// Block until at least one execution slot is free rather than busy
 		// looping: a send on a buffered channel only succeeds when it is not
@@ -115,6 +126,18 @@ func (w *Worker) Run(ctx context.Context) {
 			w.log.ErrorContext(ctx, "claim failed", "error", err)
 			continue
 		}
+
+		if len(tasks) == 0 {
+			select {
+			case <-ctx.Done():
+				w.shutdown(bg)
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(backoff*2, idleBackoffCeiling)
+			continue
+		}
+		backoff = idleBackoffFloor
 
 		for _, t := range tasks {
 			w.sem <- struct{}{}
