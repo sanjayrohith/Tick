@@ -79,6 +79,12 @@ type Config struct {
 	// the worker cancels it and reports a timeout as a retryable failure.
 	// TICK_TASK_TIMEOUT.
 	TaskTimeout time.Duration
+
+	// ShutdownGrace is how long a worker waits for in-flight tasks to finish
+	// on SIGTERM/SIGINT before releasing their claims back to pending itself,
+	// rather than leaving them for the sweeper to notice once their heartbeat
+	// goes silent. TICK_SHUTDOWN_GRACE.
+	ShutdownGrace time.Duration
 }
 
 // Defaults applied when a variable is unset. Chosen so that a developer with
@@ -94,6 +100,7 @@ const (
 	defaultHeartbeatInterval = 10 * time.Second
 	defaultHeartbeatTTL      = 90 * time.Second
 	defaultTaskTimeout       = 5 * time.Minute
+	defaultShutdownGrace     = 30 * time.Second
 )
 
 // maxClaimBatch bounds a single claim. A very large batch holds row locks for
@@ -174,6 +181,7 @@ func Load(lookup LookupFunc) (*Config, error) {
 		HeartbeatInterval: l.duration("TICK_HEARTBEAT_INTERVAL", defaultHeartbeatInterval),
 		HeartbeatTTL:      l.duration("TICK_HEARTBEAT_TTL", defaultHeartbeatTTL),
 		TaskTimeout:       l.duration("TICK_TASK_TIMEOUT", defaultTaskTimeout),
+		ShutdownGrace:     l.duration("TICK_SHUTDOWN_GRACE", defaultShutdownGrace),
 	}
 
 	// Cross-field rule: the Redis backend cannot start without a Redis URL.
@@ -317,10 +325,10 @@ func (c *Config) String() string {
 	return fmt.Sprintf(
 		"backend=%s queue=%s claim_batch=%d concurrency=%d http_addr=%s log_level=%s "+
 			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s task_timeout=%s "+
-			"database_url=%s redis_url=%s",
+			"shutdown_grace=%s database_url=%s redis_url=%s",
 		c.Backend, c.Queue, c.ClaimBatch, c.Concurrency, c.HTTPAddr, c.LogLevel,
 		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL, c.TaskTimeout,
-		redacted(c.DatabaseURL), redacted(c.RedisURL),
+		c.ShutdownGrace, redacted(c.DatabaseURL), redacted(c.RedisURL),
 	)
 }
 

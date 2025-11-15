@@ -42,7 +42,15 @@ type Config struct {
 	// TaskTimeout bounds how long a single handler invocation may run before
 	// it is cancelled and reported as a retryable failure.
 	TaskTimeout time.Duration
+
+	// ShutdownGrace is how long Run waits for in-flight dispatches to finish,
+	// once its context is cancelled, before force-releasing their claims.
+	ShutdownGrace time.Duration
 }
+
+// errShutdownTimeout marks a task released because the worker's shutdown
+// grace period elapsed before the task finished.
+var errShutdownTimeout = errors.New("worker: shutdown grace period elapsed before task finished")
 
 // Worker claims tasks from one queue and dispatches them to registered
 // handlers, running up to cfg.Concurrency of them at once.
@@ -71,10 +79,20 @@ func New(s Store, registry *Registry, id string, cfg Config, log *slog.Logger) *
 	}
 }
 
-// Run claims and dispatches tasks from cfg.Queue until ctx is cancelled, then
-// waits for in-flight dispatches to finish before returning.
+// Run claims and dispatches tasks from cfg.Queue until ctx is cancelled. On
+// cancellation it stops claiming immediately, keeps heartbeating whatever is
+// still in flight, and waits up to cfg.ShutdownGrace for those dispatches to
+// finish before force-releasing any that have not, so a SIGTERM does not
+// orphan work the sweeper would otherwise have to notice and recover later.
 func (w *Worker) Run(ctx context.Context) {
-	go w.heartbeatLoop(ctx)
+	// Detached from ctx's cancellation but not its values, so a heartbeat or
+	// a shutdown release can still run -- and still carry request-scoped log
+	// attributes -- after ctx itself has already fired.
+	bg := context.WithoutCancel(ctx)
+
+	hbCtx, hbCancel := context.WithCancel(bg)
+	defer hbCancel()
+	go w.heartbeatLoop(hbCtx)
 
 	for {
 		// Block until at least one execution slot is free rather than busy
@@ -84,14 +102,14 @@ func (w *Worker) Run(ctx context.Context) {
 		case w.sem <- struct{}{}:
 			<-w.sem
 		case <-ctx.Done():
-			w.wg.Wait()
+			w.shutdown(bg)
 			return
 		}
 
 		tasks, err := w.store.Claim(ctx, w.cfg.Queue, w.id, w.availableBatch())
 		if err != nil {
 			if ctx.Err() != nil {
-				w.wg.Wait()
+				w.shutdown(bg)
 				return
 			}
 			w.log.ErrorContext(ctx, "claim failed", "error", err)
@@ -101,7 +119,10 @@ func (w *Worker) Run(ctx context.Context) {
 		for _, t := range tasks {
 			w.sem <- struct{}{}
 			w.wg.Add(1)
-			taskCtx, cancel := context.WithCancel(ctx)
+			// taskCtx is rooted in bg, not ctx: a dispatch in progress when
+			// Run's context is cancelled keeps running through the grace
+			// period instead of being cut off the instant shutdown begins.
+			taskCtx, cancel := context.WithCancel(bg)
 			w.inFlight.add(t.ID, cancel)
 			go func(t *domain.Task, taskCtx context.Context, cancel context.CancelFunc) {
 				defer w.wg.Done()
@@ -110,6 +131,36 @@ func (w *Worker) Run(ctx context.Context) {
 				defer cancel()
 				w.dispatch(taskCtx, t)
 			}(t, taskCtx, cancel)
+		}
+	}
+}
+
+// shutdown waits up to cfg.ShutdownGrace for in-flight dispatches to finish,
+// then cancels and releases whatever is still running.
+func (w *Worker) shutdown(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(w.cfg.ShutdownGrace):
+		w.releaseRemaining(ctx)
+	}
+}
+
+// releaseRemaining cancels every still-in-flight task's context and fails it
+// back to pending (or dead, once attempts are exhausted), so the sweeper does
+// not have to wait out the full heartbeat TTL to notice this worker is gone.
+func (w *Worker) releaseRemaining(ctx context.Context) {
+	for _, id := range w.inFlight.ids() {
+		if cancel, ok := w.inFlight.cancelFunc(id); ok {
+			cancel()
+		}
+		if err := w.store.Fail(ctx, id, w.id, errShutdownTimeout); err != nil && !errors.Is(err, domain.ErrClaimLost) {
+			w.log.ErrorContext(ctx, "releasing claim on shutdown failed", "task_id", id, "error", err)
 		}
 	}
 }
