@@ -51,6 +51,11 @@ type Config struct {
 	// TICK_CLAIM_BATCH.
 	ClaimBatch int
 
+	// Concurrency bounds how many tasks a worker executes at once. Claiming is
+	// throttled to this same limit, so a worker never holds more claims than
+	// it has capacity to run. TICK_CONCURRENCY.
+	Concurrency int
+
 	// HTTPAddr is the listen address for the API server. TICK_HTTP_ADDR.
 	HTTPAddr string
 
@@ -77,6 +82,7 @@ const (
 	defaultBackend           = BackendPostgres
 	defaultQueue             = "default"
 	defaultClaimBatch        = 10
+	defaultConcurrency       = 10
 	defaultHTTPAddr          = ":8080"
 	defaultLogLevel          = slog.LevelInfo
 	defaultSweepInterval     = 30 * time.Second
@@ -88,6 +94,11 @@ const (
 // longer than a worker can plausibly heartbeat them, which converts a slow
 // handler into a wave of false orphan recoveries.
 const maxClaimBatch = 1000
+
+// maxConcurrency bounds how many tasks one worker process may run at once.
+// Past this a single process is doing the job of a fleet and should be split
+// instead of tuned further.
+const maxConcurrency = 1000
 
 // minHeartbeatTTLRatio is the minimum multiple HeartbeatTTL must be of
 // HeartbeatInterval. A ratio of 3 means a worker has to miss three
@@ -148,6 +159,7 @@ func Load(lookup LookupFunc) (*Config, error) {
 		RedisURL:    l.optional("TICK_REDIS_URL", ""),
 		Queue:       l.optional("TICK_QUEUE", defaultQueue),
 		ClaimBatch:  l.intInRange("TICK_CLAIM_BATCH", defaultClaimBatch, 1, maxClaimBatch),
+		Concurrency: l.intInRange("TICK_CONCURRENCY", defaultConcurrency, 1, maxConcurrency),
 		HTTPAddr:    l.optional("TICK_HTTP_ADDR", defaultHTTPAddr),
 		Backend:     l.backend("TICK_BACKEND", defaultBackend),
 		LogLevel:    l.logLevel("TICK_LOG_LEVEL", defaultLogLevel),
@@ -296,9 +308,9 @@ func (l *loader) logLevel(key string, def slog.Level) slog.Level {
 // Connection strings carry passwords, so only their presence is reported.
 func (c *Config) String() string {
 	return fmt.Sprintf(
-		"backend=%s queue=%s claim_batch=%d http_addr=%s log_level=%s "+
+		"backend=%s queue=%s claim_batch=%d concurrency=%d http_addr=%s log_level=%s "+
 			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s database_url=%s redis_url=%s",
-		c.Backend, c.Queue, c.ClaimBatch, c.HTTPAddr, c.LogLevel,
+		c.Backend, c.Queue, c.ClaimBatch, c.Concurrency, c.HTTPAddr, c.LogLevel,
 		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL,
 		redacted(c.DatabaseURL), redacted(c.RedisURL),
 	)
