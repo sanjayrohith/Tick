@@ -4,10 +4,21 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/sanjayrohith/tick/internal/domain"
-	"github.com/sanjayrohith/tick/internal/store"
 )
+
+// Store is the store surface a Worker needs: claiming, heartbeating,
+// completing, and failing tasks, plus checking a task's current owner after
+// a heartbeat suggests the claim was lost.
+type Store interface {
+	Claim(ctx context.Context, queue, workerID string, limit int) ([]*domain.Task, error)
+	Heartbeat(ctx context.Context, ids []int64, workerID string) (int, error)
+	Complete(ctx context.Context, id int64, workerID string) error
+	Fail(ctx context.Context, id int64, workerID string, execErr error) error
+	Get(ctx context.Context, id int64) (*domain.Task, error)
+}
 
 // Config tunes a Worker's polling behaviour.
 type Config struct {
@@ -21,36 +32,44 @@ type Config struct {
 	// Claiming is throttled to the same limit, so the worker never holds more
 	// claims than it has capacity to run.
 	Concurrency int
+
+	// HeartbeatInterval is how often in-flight claims are refreshed in one
+	// batched call.
+	HeartbeatInterval time.Duration
 }
 
 // Worker claims tasks from one queue and dispatches them to registered
 // handlers, running up to cfg.Concurrency of them at once.
 type Worker struct {
-	store    store.Claimer
+	store    Store
 	registry *Registry
 	cfg      Config
 	id       string
 	log      *slog.Logger
 
-	sem chan struct{}
-	wg  sync.WaitGroup
+	sem      chan struct{}
+	wg       sync.WaitGroup
+	inFlight *inFlightSet
 }
 
 // New builds a Worker identified by id, claiming from s and dispatching to
 // registry. A nil logger discards output.
-func New(s store.Claimer, registry *Registry, id string, cfg Config, log *slog.Logger) *Worker {
+func New(s Store, registry *Registry, id string, cfg Config, log *slog.Logger) *Worker {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &Worker{
 		store: s, registry: registry, cfg: cfg, id: id, log: log,
-		sem: make(chan struct{}, cfg.Concurrency),
+		sem:      make(chan struct{}, cfg.Concurrency),
+		inFlight: newInFlightSet(),
 	}
 }
 
 // Run claims and dispatches tasks from cfg.Queue until ctx is cancelled, then
 // waits for in-flight dispatches to finish before returning.
 func (w *Worker) Run(ctx context.Context) {
+	go w.heartbeatLoop(ctx)
+
 	for {
 		// Block until at least one execution slot is free rather than busy
 		// looping: a send on a buffered channel only succeeds when it is not
@@ -76,11 +95,15 @@ func (w *Worker) Run(ctx context.Context) {
 		for _, t := range tasks {
 			w.sem <- struct{}{}
 			w.wg.Add(1)
-			go func(t *domain.Task) {
+			taskCtx, cancel := context.WithCancel(ctx)
+			w.inFlight.add(t.ID, cancel)
+			go func(t *domain.Task, taskCtx context.Context, cancel context.CancelFunc) {
 				defer w.wg.Done()
 				defer func() { <-w.sem }()
-				w.dispatch(ctx, t)
-			}(t)
+				defer w.inFlight.remove(t.ID)
+				defer cancel()
+				w.dispatch(taskCtx, t)
+			}(t, taskCtx, cancel)
 		}
 	}
 }
