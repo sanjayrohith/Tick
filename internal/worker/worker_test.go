@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -183,5 +184,46 @@ func TestSuccessPathMarksSucceeded(t *testing.T) {
 	}
 	if got.Attempts != 1 {
 		t.Errorf("attempts = %d, want 1", got.Attempts)
+	}
+}
+
+func TestRetryUntilSuccessAndExhaustionIntoDead(t *testing.T) {
+	store := newFakeStore()
+	registry := NewRegistry()
+
+	// Fails on its first two attempts, then succeeds on the third. Deciding
+	// off t.Attempts -- incremented by Claim exactly like the real claim
+	// query -- rather than a shared counter keeps this correct even though
+	// the worker may run several tasks concurrently.
+	registry.Register("flaky", HandlerFunc(func(_ context.Context, task domain.Task) error {
+		if task.Attempts < 3 {
+			return errors.New("not yet")
+		}
+		return nil
+	}))
+	registry.Register("always-fails", HandlerFunc(func(context.Context, domain.Task) error {
+		return errors.New("permanent failure")
+	}))
+
+	flaky := store.enqueue(domain.Task{Queue: "default", Handler: "flaky", MaxAttempts: 5})
+	doomed := store.enqueue(domain.Task{Queue: "default", Handler: "always-fails", MaxAttempts: 2})
+
+	w := New(store, registry, "test-worker", testConfig(), nil)
+	runAndStop(t, w)
+
+	gotFlaky := waitForTerminal(t, store, flaky.ID)
+	if gotFlaky.Status != domain.StatusSucceeded {
+		t.Errorf("flaky task status = %q, want %q", gotFlaky.Status, domain.StatusSucceeded)
+	}
+	if gotFlaky.Attempts != 3 {
+		t.Errorf("flaky task attempts = %d, want 3", gotFlaky.Attempts)
+	}
+
+	gotDoomed := waitForTerminal(t, store, doomed.ID)
+	if gotDoomed.Status != domain.StatusDead {
+		t.Errorf("doomed task status = %q, want %q", gotDoomed.Status, domain.StatusDead)
+	}
+	if gotDoomed.Attempts != gotDoomed.MaxAttempts {
+		t.Errorf("doomed task attempts = %d, want max_attempts %d", gotDoomed.Attempts, gotDoomed.MaxAttempts)
 	}
 }
