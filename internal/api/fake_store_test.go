@@ -17,6 +17,7 @@ type fakeStore struct {
 
 	enqueueFunc     func(ctx context.Context, t *domain.Task) (*domain.Task, error)
 	enqueueBulkFunc func(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
+	getFunc         func(ctx context.Context, id int64) (*domain.Task, error)
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -28,6 +29,13 @@ func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, 
 	out.Status = domain.StatusPending
 	out.CreatedAt = time.Now()
 	return &out, nil
+}
+
+func (f *fakeStore) Get(ctx context.Context, id int64) (*domain.Task, error) {
+	if f.getFunc != nil {
+		return f.getFunc(ctx, id)
+	}
+	return nil, domain.ErrNotFound
 }
 
 func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {

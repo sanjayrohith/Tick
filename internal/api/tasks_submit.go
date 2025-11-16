@@ -21,6 +21,9 @@ type Store interface {
 	// EnqueueBulk inserts many tasks in one transaction and returns them in
 	// submission order.
 	EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
+
+	// Get returns one task by ID, or domain.ErrNotFound.
+	Get(ctx context.Context, id int64) (*domain.Task, error)
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -40,6 +43,7 @@ type taskSubmission struct {
 func (s *Server) routes() {
 	s.router.Post("/tasks", s.submitTask)
 	s.router.Post("/tasks/bulk", s.submitTasksBulk)
+	s.router.Get("/tasks/{id}", s.getTask)
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
