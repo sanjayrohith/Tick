@@ -17,6 +17,10 @@ type Store interface {
 	// Enqueue inserts one task and returns it with its assigned ID and any
 	// database-applied defaults.
 	Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error)
+
+	// EnqueueBulk inserts many tasks in one transaction and returns them in
+	// submission order.
+	EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -35,6 +39,7 @@ type taskSubmission struct {
 // routes registers the API's endpoints on the server's router.
 func (s *Server) routes() {
 	s.router.Post("/tasks", s.submitTask)
+	s.router.Post("/tasks/bulk", s.submitTasksBulk)
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {

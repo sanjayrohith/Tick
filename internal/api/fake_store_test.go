@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"sync/atomic"
+	"time"
 
 	"github.com/sanjayrohith/tick/internal/domain"
 )
@@ -14,7 +15,8 @@ import (
 type fakeStore struct {
 	nextID int64
 
-	enqueueFunc func(ctx context.Context, t *domain.Task) (*domain.Task, error)
+	enqueueFunc     func(ctx context.Context, t *domain.Task) (*domain.Task, error)
+	enqueueBulkFunc func(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -24,5 +26,21 @@ func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, 
 	out := *t
 	out.ID = atomic.AddInt64(&f.nextID, 1)
 	out.Status = domain.StatusPending
+	out.CreatedAt = time.Now()
 	return &out, nil
+}
+
+func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {
+	if f.enqueueBulkFunc != nil {
+		return f.enqueueBulkFunc(ctx, tasks)
+	}
+	out := make([]*domain.Task, len(tasks))
+	for i, t := range tasks {
+		enqueued, err := f.Enqueue(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = enqueued
+	}
+	return out, nil
 }
