@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sanjayrohith/tick/internal/domain"
+	"github.com/sanjayrohith/tick/internal/store"
 )
 
 // fakeStore is an in-memory Store double for tests. Handlers are exercised
@@ -19,6 +20,7 @@ type fakeStore struct {
 	enqueueBulkFunc func(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
 	getFunc         func(ctx context.Context, id int64) (*domain.Task, error)
 	cancelFunc      func(ctx context.Context, id int64) error
+	queueStatsFunc  func(ctx context.Context, queue string) (*store.QueueStats, error)
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -44,6 +46,13 @@ func (f *fakeStore) Cancel(ctx context.Context, id int64) error {
 		return f.cancelFunc(ctx, id)
 	}
 	return domain.ErrNotFound
+}
+
+func (f *fakeStore) QueueStats(ctx context.Context, queue string) (*store.QueueStats, error) {
+	if f.queueStatsFunc != nil {
+		return f.queueStatsFunc(ctx, queue)
+	}
+	return store.NewQueueStats(queue), nil
 }
 
 func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {

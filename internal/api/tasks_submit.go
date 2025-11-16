@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sanjayrohith/tick/internal/domain"
+	"github.com/sanjayrohith/tick/internal/store"
 )
 
 // Store is the persistence surface the API needs. It is a subset of
@@ -28,6 +29,9 @@ type Store interface {
 	// Cancel transitions a pending task to cancelled. It returns
 	// domain.ErrNotCancellable when the task is already running or terminal.
 	Cancel(ctx context.Context, id int64) error
+
+	// QueueStats reports depth, age, and throughput for one queue.
+	QueueStats(ctx context.Context, queue string) (*store.QueueStats, error)
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -49,6 +53,7 @@ func (s *Server) routes() {
 	s.router.Post("/tasks/bulk", s.submitTasksBulk)
 	s.router.Get("/tasks/{id}", s.getTask)
 	s.router.Delete("/tasks/{id}", s.cancelTask)
+	s.router.Get("/queues/{name}/stats", s.getQueueStats)
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
