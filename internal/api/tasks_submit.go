@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +11,11 @@ import (
 	"github.com/sanjayrohith/tick/internal/domain"
 	"github.com/sanjayrohith/tick/internal/store"
 )
+
+// idempotencyKeyHeader lets a client supply the idempotency key out of band,
+// for callers that would rather not thread it through the body. It applies
+// only if the body did not already set one -- the body takes precedence.
+const idempotencyKeyHeader = "Idempotency-Key"
 
 // Store is the persistence surface the API needs. It is a subset of
 // store.Store: the API submits and inspects tasks, but never claims,
@@ -83,15 +89,25 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 	if t.Queue == "" {
 		t.Queue = "default"
 	}
+	if t.IdempotencyKey == nil {
+		if key := r.Header.Get(idempotencyKeyHeader); key != "" {
+			t.IdempotencyKey = &key
+		}
+	}
 
 	created, err := s.store.Enqueue(r.Context(), t)
-	if err != nil {
+	replay := errors.Is(err, domain.ErrDuplicateIdempotencyKey)
+	if err != nil && !replay {
 		writeJSONError(w, http.StatusInternalServerError, "enqueuing task failed")
 		return
 	}
 
+	status := http.StatusCreated
+	if replay {
+		status = http.StatusOK
+	}
 	w.Header().Set("Location", fmt.Sprintf("/tasks/%d", created.ID))
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, status, created)
 }
 
 // writeJSON encodes v as the response body with the given status code.
