@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewSetsRequestIDHeaderOnMatchedRoute(t *testing.T) {
-	s := New(nil, DefaultConfig())
+	s := New(&fakeStore{}, nil, DefaultConfig())
 	s.router.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -25,7 +25,7 @@ func TestNewSetsRequestIDHeaderOnMatchedRoute(t *testing.T) {
 }
 
 func TestNewReturnsNotFoundForUnregisteredRoute(t *testing.T) {
-	s := New(nil, DefaultConfig())
+	s := New(&fakeStore{}, nil, DefaultConfig())
 	s.router.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -41,7 +41,7 @@ func TestNewReturnsNotFoundForUnregisteredRoute(t *testing.T) {
 
 func TestHTTPServerSetsTimeouts(t *testing.T) {
 	cfg := DefaultConfig()
-	s := New(nil, cfg)
+	s := New(&fakeStore{}, nil, cfg)
 
 	httpSrv := s.HTTPServer(":8080")
 

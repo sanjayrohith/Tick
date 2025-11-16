@@ -25,10 +25,11 @@ func setRequestIDHeader(next http.Handler) http.Handler {
 func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
 			defer func() {
 				if rec := recover(); rec != nil {
-					log.ErrorContext(r.Context(), "panic recovered",
-						"error", rec, "request_id", chimw.GetReqID(r.Context()))
+					log.ErrorContext(ctx, "panic recovered",
+						"error", rec, "request_id", chimw.GetReqID(ctx))
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
 					_, _ = w.Write([]byte(`{"error":{"code":"internal","message":"internal server error"}}`))

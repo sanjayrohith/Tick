@@ -48,19 +48,20 @@ func DefaultConfig() Config {
 // Server serves the Tick HTTP API.
 type Server struct {
 	router chi.Router
+	store  Store
 	log    *slog.Logger
 	cfg    Config
 }
 
-// New builds a Server with its middleware stack wired: request ID, panic
-// recovery, request logging, a per-request timeout, and a cap on request
-// body size. A nil logger discards output.
-func New(log *slog.Logger, cfg Config) *Server {
+// New builds a Server backed by store s, with its middleware stack wired:
+// request ID, panic recovery, request logging, a per-request timeout, and a
+// cap on request body size. A nil logger discards output.
+func New(s Store, log *slog.Logger, cfg Config) *Server {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
 
-	s := &Server{log: log, cfg: cfg}
+	srv := &Server{store: s, log: log, cfg: cfg}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -69,9 +70,10 @@ func New(log *slog.Logger, cfg Config) *Server {
 	r.Use(requestLogger(log))
 	r.Use(chimw.Timeout(cfg.RequestTimeout))
 	r.Use(maxBodyBytes(cfg.MaxBodyBytes))
-	s.router = r
+	srv.router = r
+	srv.routes()
 
-	return s
+	return srv
 }
 
 // Handler returns the server's routes as an http.Handler.
