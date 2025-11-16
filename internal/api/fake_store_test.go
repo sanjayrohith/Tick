@@ -18,6 +18,7 @@ type fakeStore struct {
 	enqueueFunc     func(ctx context.Context, t *domain.Task) (*domain.Task, error)
 	enqueueBulkFunc func(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error)
 	getFunc         func(ctx context.Context, id int64) (*domain.Task, error)
+	cancelFunc      func(ctx context.Context, id int64) error
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -36,6 +37,13 @@ func (f *fakeStore) Get(ctx context.Context, id int64) (*domain.Task, error) {
 		return f.getFunc(ctx, id)
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (f *fakeStore) Cancel(ctx context.Context, id int64) error {
+	if f.cancelFunc != nil {
+		return f.cancelFunc(ctx, id)
+	}
+	return domain.ErrNotFound
 }
 
 func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {

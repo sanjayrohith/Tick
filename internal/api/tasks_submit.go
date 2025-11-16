@@ -24,6 +24,10 @@ type Store interface {
 
 	// Get returns one task by ID, or domain.ErrNotFound.
 	Get(ctx context.Context, id int64) (*domain.Task, error)
+
+	// Cancel transitions a pending task to cancelled. It returns
+	// domain.ErrNotCancellable when the task is already running or terminal.
+	Cancel(ctx context.Context, id int64) error
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -44,6 +48,7 @@ func (s *Server) routes() {
 	s.router.Post("/tasks", s.submitTask)
 	s.router.Post("/tasks/bulk", s.submitTasksBulk)
 	s.router.Get("/tasks/{id}", s.getTask)
+	s.router.Delete("/tasks/{id}", s.cancelTask)
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
