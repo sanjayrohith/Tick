@@ -44,6 +44,11 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if errs := validateSubmission(sub); len(errs) > 0 {
+		writeValidationError(w, errs)
+		return
+	}
+
 	t := &domain.Task{
 		Queue:          sub.Queue,
 		Handler:        sub.Handler,
@@ -53,12 +58,8 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: sub.IdempotencyKey,
 	}
 	if sub.RunAt != nil {
-		parsed, err := time.Parse(time.RFC3339, *sub.RunAt)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("run_at: not a valid RFC3339 timestamp: %v", err))
-			return
-		}
-		t.RunAt = parsed
+		// Already confirmed parseable by validateSubmission.
+		t.RunAt, _ = time.Parse(time.RFC3339, *sub.RunAt)
 	}
 	if t.Queue == "" {
 		t.Queue = "default"

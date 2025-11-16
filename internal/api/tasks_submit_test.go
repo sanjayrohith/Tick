@@ -56,6 +56,28 @@ func TestSubmitTaskRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestSubmitTaskRejectsMissingHandlerWithFieldError(t *testing.T) {
+	s := New(&fakeStore{}, nil, DefaultConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"queue":"emails"}`))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+
+	var body struct {
+		Errors []fieldError `json:"errors"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if !hasField(body.Errors, "handler") {
+		t.Errorf("errors = %v, want a handler field error", body.Errors)
+	}
+}
+
 func TestSubmitTaskRejectsMalformedRunAt(t *testing.T) {
 	s := New(&fakeStore{}, nil, DefaultConfig())
 
