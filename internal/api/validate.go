@@ -1,7 +1,6 @@
 package api
 
 import (
-	"net/http"
 	"regexp"
 	"strconv"
 	"time"
@@ -88,13 +87,6 @@ func isJSONObject(raw []byte) bool {
 		}
 	}
 	return false
-}
-
-// writeValidationError responds with every field-level problem found, so a
-// client can fix a bad submission in one round trip. Task 059 folds this into
-// the unified error envelope shared by every handler.
-func writeValidationError(w http.ResponseWriter, errs []fieldError) {
-	writeJSON(w, http.StatusBadRequest, map[string]any{"errors": errs})
 }
 
 func rangeMessage(minValue, maxValue int) string {

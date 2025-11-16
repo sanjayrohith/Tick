@@ -98,7 +98,7 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 	created, err := s.store.Enqueue(r.Context(), t)
 	replay := errors.Is(err, domain.ErrDuplicateIdempotencyKey)
 	if err != nil && !replay {
-		writeJSONError(w, http.StatusInternalServerError, "enqueuing task failed")
+		writeError(w, http.StatusInternalServerError, "internal", "enqueuing task failed", nil)
 		return
 	}
 
@@ -115,10 +115,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-// writeJSONError writes a bare error message. Task 059 replaces this with a
-// unified error envelope shared by every handler.
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
 }

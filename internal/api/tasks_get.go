@@ -6,8 +6,6 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-
-	"github.com/sanjayrohith/tick/internal/domain"
 )
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
@@ -19,11 +17,7 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 
 	t, err := s.store.Get(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			writeJSONError(w, http.StatusNotFound, "task not found")
-			return
-		}
-		writeJSONError(w, http.StatusInternalServerError, "getting task failed")
+		writeStoreError(w, err, "getting task failed")
 		return
 	}
 

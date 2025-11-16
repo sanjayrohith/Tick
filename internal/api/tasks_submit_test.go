@@ -67,14 +67,12 @@ func TestSubmitTaskRejectsMissingHandlerWithFieldError(t *testing.T) {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 
-	var body struct {
-		Errors []fieldError `json:"errors"`
-	}
+	var body apiErrorBody
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
-	if !hasField(body.Errors, "handler") {
-		t.Errorf("errors = %v, want a handler field error", body.Errors)
+	if !hasField(body.Error.Fields, "handler") {
+		t.Errorf("fields = %v, want a handler field error", body.Error.Fields)
 	}
 }
 
