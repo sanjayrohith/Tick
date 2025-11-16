@@ -21,6 +21,7 @@ type fakeStore struct {
 	getFunc         func(ctx context.Context, id int64) (*domain.Task, error)
 	cancelFunc      func(ctx context.Context, id int64) error
 	queueStatsFunc  func(ctx context.Context, queue string) (*store.QueueStats, error)
+	pingFunc        func(ctx context.Context) error
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -46,6 +47,13 @@ func (f *fakeStore) Cancel(ctx context.Context, id int64) error {
 		return f.cancelFunc(ctx, id)
 	}
 	return domain.ErrNotFound
+}
+
+func (f *fakeStore) Ping(ctx context.Context) error {
+	if f.pingFunc != nil {
+		return f.pingFunc(ctx)
+	}
+	return nil
 }
 
 func (f *fakeStore) QueueStats(ctx context.Context, queue string) (*store.QueueStats, error) {

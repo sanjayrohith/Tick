@@ -38,6 +38,9 @@ type Store interface {
 
 	// QueueStats reports depth, age, and throughput for one queue.
 	QueueStats(ctx context.Context, queue string) (*store.QueueStats, error)
+
+	// Ping checks that the store is reachable, backing the /readyz probe.
+	Ping(ctx context.Context) error
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -60,6 +63,8 @@ func (s *Server) routes() {
 	s.router.Get("/tasks/{id}", s.getTask)
 	s.router.Delete("/tasks/{id}", s.cancelTask)
 	s.router.Get("/queues/{name}/stats", s.getQueueStats)
+	s.router.Get("/healthz", s.healthz)
+	s.router.Get("/readyz", s.readyz)
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {

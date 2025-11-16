@@ -114,6 +114,13 @@ func pingWithRetry(ctx context.Context, pool *pgxpool.Pool) error {
 	return fmt.Errorf("pinging database after %d attempts: %w", pingAttempts, lastErr)
 }
 
+// Ping checks that the database is reachable. It backs the API's /readyz
+// probe: a process that is up but cannot reach Postgres should be pulled from
+// a load balancer's rotation rather than served traffic it cannot fulfil.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // Close releases pooled connections. Safe to call more than once.
 func (s *Store) Close() error {
 	if s.pool == nil {
