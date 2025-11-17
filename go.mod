@@ -2,7 +2,10 @@ module github.com/sanjayrohith/tick
 
 go 1.27.0
 
-require github.com/jackc/pgx/v5 v5.10.0
+require (
+	github.com/jackc/pgx/v5 v5.10.0
+	github.com/robfig/cron/v3 v3.0.1
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
