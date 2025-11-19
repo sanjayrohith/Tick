@@ -48,9 +48,11 @@ func TestLoadReadsEveryField(t *testing.T) {
 		"TICK_HTTP_ADDR":    "127.0.0.1:9000",
 		"TICK_LOG_LEVEL":    "debug",
 
-		"TICK_SWEEP_INTERVAL":     "45s",
-		"TICK_HEARTBEAT_INTERVAL": "15s",
-		"TICK_HEARTBEAT_TTL":      "60s",
+		"TICK_SWEEP_INTERVAL":        "45s",
+		"TICK_HEARTBEAT_INTERVAL":    "15s",
+		"TICK_HEARTBEAT_TTL":         "60s",
+		"TICK_MATERIALIZER_INTERVAL": "20s",
+		"TICK_MATERIALIZER_HORIZON":  "10m",
 	}))
 	if err != nil {
 		t.Fatalf("Load() = %v, want success", err)
@@ -70,6 +72,8 @@ func TestLoadReadsEveryField(t *testing.T) {
 		{"SweepInterval", cfg.SweepInterval, 45 * time.Second},
 		{"HeartbeatInterval", cfg.HeartbeatInterval, 15 * time.Second},
 		{"HeartbeatTTL", cfg.HeartbeatTTL, 60 * time.Second},
+		{"MaterializerInterval", cfg.MaterializerInterval, 20 * time.Second},
+		{"MaterializerHorizon", cfg.MaterializerHorizon, 10 * time.Minute},
 	}
 	for _, c := range checks {
 		if c.got != c.want {

@@ -67,6 +67,14 @@ type Config struct {
 	// TICK_SWEEP_INTERVAL.
 	SweepInterval time.Duration
 
+	// MaterializerInterval is how often the materializer scans enabled
+	// schedules for due work. TICK_MATERIALIZER_INTERVAL.
+	MaterializerInterval time.Duration
+
+	// MaterializerHorizon is how far ahead of now the materializer
+	// generates tasks on each pass. TICK_MATERIALIZER_HORIZON.
+	MaterializerHorizon time.Duration
+
 	// HeartbeatInterval is how often a worker refreshes heartbeat_at on its
 	// claimed tasks. TICK_HEARTBEAT_INTERVAL.
 	HeartbeatInterval time.Duration
@@ -90,17 +98,19 @@ type Config struct {
 // Defaults applied when a variable is unset. Chosen so that a developer with
 // only TICK_DATABASE_URL set gets a working single-queue Postgres deployment.
 const (
-	defaultBackend           = BackendPostgres
-	defaultQueue             = "default"
-	defaultClaimBatch        = 10
-	defaultConcurrency       = 10
-	defaultHTTPAddr          = ":8080"
-	defaultLogLevel          = slog.LevelInfo
-	defaultSweepInterval     = 30 * time.Second
-	defaultHeartbeatInterval = 10 * time.Second
-	defaultHeartbeatTTL      = 90 * time.Second
-	defaultTaskTimeout       = 5 * time.Minute
-	defaultShutdownGrace     = 30 * time.Second
+	defaultBackend              = BackendPostgres
+	defaultQueue                = "default"
+	defaultClaimBatch           = 10
+	defaultConcurrency          = 10
+	defaultHTTPAddr             = ":8080"
+	defaultLogLevel             = slog.LevelInfo
+	defaultSweepInterval        = 30 * time.Second
+	defaultMaterializerInterval = 30 * time.Second
+	defaultMaterializerHorizon  = 5 * time.Minute
+	defaultHeartbeatInterval    = 10 * time.Second
+	defaultHeartbeatTTL         = 90 * time.Second
+	defaultTaskTimeout          = 5 * time.Minute
+	defaultShutdownGrace        = 30 * time.Second
 )
 
 // maxClaimBatch bounds a single claim. A very large batch holds row locks for
@@ -177,11 +187,13 @@ func Load(lookup LookupFunc) (*Config, error) {
 		Backend:     l.backend("TICK_BACKEND", defaultBackend),
 		LogLevel:    l.logLevel("TICK_LOG_LEVEL", defaultLogLevel),
 
-		SweepInterval:     l.duration("TICK_SWEEP_INTERVAL", defaultSweepInterval),
-		HeartbeatInterval: l.duration("TICK_HEARTBEAT_INTERVAL", defaultHeartbeatInterval),
-		HeartbeatTTL:      l.duration("TICK_HEARTBEAT_TTL", defaultHeartbeatTTL),
-		TaskTimeout:       l.duration("TICK_TASK_TIMEOUT", defaultTaskTimeout),
-		ShutdownGrace:     l.duration("TICK_SHUTDOWN_GRACE", defaultShutdownGrace),
+		SweepInterval:        l.duration("TICK_SWEEP_INTERVAL", defaultSweepInterval),
+		MaterializerInterval: l.duration("TICK_MATERIALIZER_INTERVAL", defaultMaterializerInterval),
+		MaterializerHorizon:  l.duration("TICK_MATERIALIZER_HORIZON", defaultMaterializerHorizon),
+		HeartbeatInterval:    l.duration("TICK_HEARTBEAT_INTERVAL", defaultHeartbeatInterval),
+		HeartbeatTTL:         l.duration("TICK_HEARTBEAT_TTL", defaultHeartbeatTTL),
+		TaskTimeout:          l.duration("TICK_TASK_TIMEOUT", defaultTaskTimeout),
+		ShutdownGrace:        l.duration("TICK_SHUTDOWN_GRACE", defaultShutdownGrace),
 	}
 
 	// Cross-field rule: the Redis backend cannot start without a Redis URL.
@@ -325,10 +337,12 @@ func (c *Config) String() string {
 	return fmt.Sprintf(
 		"backend=%s queue=%s claim_batch=%d concurrency=%d http_addr=%s log_level=%s "+
 			"sweep_interval=%s heartbeat_interval=%s heartbeat_ttl=%s task_timeout=%s "+
-			"shutdown_grace=%s database_url=%s redis_url=%s",
+			"shutdown_grace=%s materializer_interval=%s materializer_horizon=%s "+
+			"database_url=%s redis_url=%s",
 		c.Backend, c.Queue, c.ClaimBatch, c.Concurrency, c.HTTPAddr, c.LogLevel,
 		c.SweepInterval, c.HeartbeatInterval, c.HeartbeatTTL, c.TaskTimeout,
-		c.ShutdownGrace, redacted(c.DatabaseURL), redacted(c.RedisURL),
+		c.ShutdownGrace, c.MaterializerInterval, c.MaterializerHorizon,
+		redacted(c.DatabaseURL), redacted(c.RedisURL),
 	)
 }
 
