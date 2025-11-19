@@ -22,6 +22,8 @@ type fakeStore struct {
 	cancelFunc      func(ctx context.Context, id int64) error
 	queueStatsFunc  func(ctx context.Context, queue string) (*store.QueueStats, error)
 	pingFunc        func(ctx context.Context) error
+
+	createScheduleFunc func(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error)
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -61,6 +63,17 @@ func (f *fakeStore) QueueStats(ctx context.Context, queue string) (*store.QueueS
 		return f.queueStatsFunc(ctx, queue)
 	}
 	return store.NewQueueStats(queue), nil
+}
+
+func (f *fakeStore) CreateSchedule(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error) {
+	if f.createScheduleFunc != nil {
+		return f.createScheduleFunc(ctx, sc)
+	}
+	out := *sc
+	out.ID = atomic.AddInt64(&f.nextID, 1)
+	out.Enabled = true
+	out.CreatedAt = time.Now()
+	return &out, nil
 }
 
 func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {

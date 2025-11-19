@@ -41,6 +41,10 @@ type Store interface {
 
 	// Ping checks that the store is reachable, backing the /readyz probe.
 	Ping(ctx context.Context) error
+
+	// CreateSchedule inserts one recurring schedule and returns it with its
+	// assigned ID and any database-applied defaults.
+	CreateSchedule(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error)
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -63,6 +67,7 @@ func (s *Server) routes() {
 	s.router.Get("/tasks/{id}", s.getTask)
 	s.router.Delete("/tasks/{id}", s.cancelTask)
 	s.router.Get("/queues/{name}/stats", s.getQueueStats)
+	s.router.Post("/schedules", s.createSchedule)
 	s.router.Get("/healthz", s.healthz)
 	s.router.Get("/readyz", s.readyz)
 }
