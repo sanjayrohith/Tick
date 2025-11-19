@@ -23,7 +23,10 @@ type fakeStore struct {
 	queueStatsFunc  func(ctx context.Context, queue string) (*store.QueueStats, error)
 	pingFunc        func(ctx context.Context) error
 
-	createScheduleFunc func(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error)
+	createScheduleFunc     func(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error)
+	listSchedulesFunc      func(ctx context.Context) ([]*domain.Schedule, error)
+	getScheduleFunc        func(ctx context.Context, id int64) (*domain.Schedule, error)
+	setScheduleEnabledFunc func(ctx context.Context, id int64, enabled bool) (*domain.Schedule, error)
 }
 
 func (f *fakeStore) Enqueue(ctx context.Context, t *domain.Task) (*domain.Task, error) {
@@ -74,6 +77,27 @@ func (f *fakeStore) CreateSchedule(ctx context.Context, sc *domain.Schedule) (*d
 	out.Enabled = true
 	out.CreatedAt = time.Now()
 	return &out, nil
+}
+
+func (f *fakeStore) ListSchedules(ctx context.Context) ([]*domain.Schedule, error) {
+	if f.listSchedulesFunc != nil {
+		return f.listSchedulesFunc(ctx)
+	}
+	return nil, nil
+}
+
+func (f *fakeStore) GetSchedule(ctx context.Context, id int64) (*domain.Schedule, error) {
+	if f.getScheduleFunc != nil {
+		return f.getScheduleFunc(ctx, id)
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeStore) SetScheduleEnabled(ctx context.Context, id int64, enabled bool) (*domain.Schedule, error) {
+	if f.setScheduleEnabledFunc != nil {
+		return f.setScheduleEnabledFunc(ctx, id, enabled)
+	}
+	return nil, domain.ErrNotFound
 }
 
 func (f *fakeStore) EnqueueBulk(ctx context.Context, tasks []*domain.Task) ([]*domain.Task, error) {

@@ -45,6 +45,16 @@ type Store interface {
 	// CreateSchedule inserts one recurring schedule and returns it with its
 	// assigned ID and any database-applied defaults.
 	CreateSchedule(ctx context.Context, sc *domain.Schedule) (*domain.Schedule, error)
+
+	// ListSchedules returns every schedule, enabled or not.
+	ListSchedules(ctx context.Context) ([]*domain.Schedule, error)
+
+	// GetSchedule returns one schedule by ID, or domain.ErrNotFound.
+	GetSchedule(ctx context.Context, id int64) (*domain.Schedule, error)
+
+	// SetScheduleEnabled enables or disables a schedule and returns it as
+	// updated, or domain.ErrNotFound.
+	SetScheduleEnabled(ctx context.Context, id int64, enabled bool) (*domain.Schedule, error)
 }
 
 // taskSubmission is the request body for POST /tasks. RunAt is a string, not
@@ -68,6 +78,9 @@ func (s *Server) routes() {
 	s.router.Delete("/tasks/{id}", s.cancelTask)
 	s.router.Get("/queues/{name}/stats", s.getQueueStats)
 	s.router.Post("/schedules", s.createSchedule)
+	s.router.Get("/schedules", s.listSchedules)
+	s.router.Get("/schedules/{id}", s.getSchedule)
+	s.router.Patch("/schedules/{id}", s.updateSchedule)
 	s.router.Get("/healthz", s.healthz)
 	s.router.Get("/readyz", s.readyz)
 }
